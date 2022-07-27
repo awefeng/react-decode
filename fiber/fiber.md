@@ -34,7 +34,8 @@ fiberRootNode --children--> rootFiber --children--> App
 从最开始的fiberRootNode开始，
 然后在最开始mount的时候，currentFiber树中rootFiber下的fiber节点都为空，workInProgressFiber树中rootFiber下为APP fiber节点。
 
-Mount阶段的beiginWork 
-![beginWork Mount](./beginWork-mount.png)
+### beginWork的工作
 
-Mount阶段的completeWork
+beignWork的工作就是以当前的current Fiber节点，和workInProgress Fiber节点，计算出新的子fiber节点，并将新的子fiber节点挂载到workInProgress.child上
+
+其中会涉及到是否能够复用原来的current Fiber的子节点，如果能够复用，则clone原来current Fiber的子节点返回。
