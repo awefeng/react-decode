@@ -49,64 +49,21 @@ function createTextElement(child){
  * 注意此时render的element参数已经是转换后的JS对象。
  * @param {*} element
  * @param {*} container
+ *
+ */
 function render(element, container){
   // 1. 生成一个dom来对应当前的element
   const dom = element.type === 'TEXT_ELEMENT' ? document.createTextNode('')  : document.createElement(element.type)
   // 2. 将element的props传给DOM
-  Object.keys(element.props).filter(key => key!== 'children').forEach(key => {dom[key] = element.props[kye]})
-
-  // 3. 遍历children生成element对应的dom树  v1.0
-  // element.props.children.forEach(child => render(child, dom))
-
+  Object.keys(element.props).filter(key => key!== 'children').forEach(key => {dom[key] = element.props[key]})
+  // 3. 将DOM结构挂载到父DOM下
   container.appendChild(dom)
-}
-*/
-
-/**
- * workLoop 支撑render2.0的concurrent mode函数
- * 暂时实现上通过requestIdleCallback实现
- * 在实际的scheduler模块中是通过一系列机制的结合实现
- */
-
-let nextUnitWork = null // 下一次需要处理的工作单元
-
-function workLoop(deadline){
-  let shouldYield = false
-  // 存在下一次工作单元并且此时不需要中断的时候，就继续执行
-  while(nextUnitWork && !shouldYield){
-    // 1. performUnitWork工作：处理当前的工作单元，并且返回下一次需要处理的工作单元
-    nextUnitWork = performUnitWork(nextUnitWork)
-    // 2. 判断是否需要中断
-    shouldYield = deadline.timeRemaining < 1
-  }
-}
-
-requestIdleCallback(workLoop)
-
-/**
- * performUnitWork怎么处理当前的工作单元：
- * performUnitWork需要完成v1.0render的工作，创建一个dom，并附与props，用返回下一个工作单元的方式来代替遍历
- *
- * @param {*} nextUnitWork
- */
-function performUnitWork(nextUnitWork){
+  // 4. 遍历children生成element对应的dom树
+  element.props.children.forEach(child => render(child, dom))
 
 }
-/**
- * render
- * v2.0：通过concurrent mode来实现可中断更新
- *
- * v1.0问题：
- * children.forEach(child => render(child,dom))是一个不可中断的递归遍历，每次必须执行完以后再去更新dom
- * 如果传入render的element对象结构非DOM结构非常神
- * @param {*} element
- * @param {*} container
- */
-function render(element, container){
-  //1. 首先
-}
 
-const Feact =  {
+export const Feact =  {
   createElement,
   render
 }

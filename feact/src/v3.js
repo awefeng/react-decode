@@ -1,5 +1,5 @@
 /**
- * 手写一个简单的React V2
+ * 手写一个简单的React V3
  */
 
 /**
@@ -41,13 +41,25 @@ function createTextElement(child){
 }
 
 /**
+ * 将通过fiber创建DOM这一步骤抽成一个函数
+ */
+ function createDOM(fiber){
+  const dom = document.createElement(fiber.type)
+  Object.keys(fiber.props).filter(key => key !== "children").forEach(key => dom[key] = fiber.props[key])
+  return dom
+}
+
+/**
  * workLoop 支撑render2.0的concurrent mode函数
  * 暂时实现上通过requestIdleCallback实现
  * 在实际的scheduler模块中是通过一系列机制的结合实现
  */
 
 let nextUnitWork = null // 下一次需要处理的工作单元
+let workInProgress = null // 一次更新中，elements生成的fiber树
 
+
+// v3.0中需要改造为fiber树DFS完以后就
 function workLoop(deadline){
   let shouldYield = false
   // 存在下一次工作单元并且此时不需要中断的时候，就继续执行
@@ -57,6 +69,11 @@ function workLoop(deadline){
     // 2. 判断是否需要中断
     shouldYield = deadline.timeRemaining < 1
   }
+  // fiber树处理完以后，代表render阶段已经结束，则立即进入commit阶段
+  if(!nextUnitWork && workInProgress){
+    commitRoot()
+  }
+  requestIdleCallback(workLoop)
 }
 
 requestIdleCallback(workLoop)
@@ -80,16 +97,22 @@ requestIdleCallback(workLoop)
  * }
  * 这个结构就叫做fiber
  * 目前fiber的两层含义：工作单元、数据结构
+ *
+ * v3.0版本中将"DOM结构挂载在父DOM下"的操作抽出来，所有fiber都通过performUnitWork处理以后再进行DOM的连接
+ * React中将处理element生成所有fiber树，称为render阶段
+ * React中将用fiber树连接DOM，称为commit阶段
  */
+
+// render阶段
 function performUnitWork(fiber){
   // 1+2. 创建一个dom并挂载props
   if(!fiber.dom){
     fiber.dom = createDOM(fiber)
   }
-  // 3. DOM结构挂载在父DOM下
-  if(fiber.parent){
-    fiber.parent.dom.appendChild(fiber.dom)
-  }
+  // // 3. DOM结构挂载在父DOM下
+  // if(fiber.parent){
+  //   fiber.parent.dom.appendChild(fiber.dom)
+  // }
 
   // 4. 找到下一个需要处理的element并生成fiber返回
   // 如何寻找下一个需要处理的element：这种算法需要将element树的所有节点都遍历到，则候选为DFS和BFS。
@@ -132,21 +155,26 @@ function performUnitWork(fiber){
   return null
 }
 
-/**
- * 将通过fiber创建DOM这一步骤抽成一个函数
- */
-function createDOM(fiber){
-  const dom = document.createElement(fiber.type)
-  Object.keys(fiber.props).filter(key => key !== "children").forEach(key => dom[key] = fiber.props[key])
-  return dom
+// commit阶段入口函数
+function commitRoot(){
+  commitWork(workInProgress.child)
+  workInProgress = null
 }
+
+function commitWork(fiber){
+  if(!fiber)return
+  fiber.parent.dom.appendChild(fiber.dom)
+  commitWork(fiber.child)
+  commitWork(fiber.sibling)
+}
+
 /**
  * render
- * v2.0：通过concurrent mode来实现可中断更新
+ * v3.0：通过concurrent mode来实现可中断更新
+ * 并且当所有fiber遍历完以后再去改变dom
  *
- * v1.0问题：
- * children.forEach(child => render(child,dom))是一个不可中断的递归遍历，每次必须执行完以后再去更新dom
- * 如果传入render的element对象结构很深会导致递归的时间很长
+ * v2.0问题：
+ * 在创建fiber的DOM以后就挂载在父DOM下，一旦中断，UI只更新了一部分，不符合要求。
  * @param {*} element
  * @param {*} container
  */
