@@ -1,11 +1,19 @@
-import {Feact} from './v1'
+import { Feact } from './v2'
 
 /** @jsxRuntime classic */
 /** @jsx Feact.createElement */
 const element = (
   <div style="background: red">
-    <h1>测试crateElement</h1>
-    <h2 style="text-align:right">Feact</h2>
+    {new Array(1000).fill("").map((_, index) => <span key={index}>第{index+1}个</span>)}
+    <span>测试element1</span>
+    <span>测试element1</span>
+    <span>测试element1</span>
+    <span>测试element1</span>
+    <span>测试element1</span>
+    <span>测试element1</span>
+    <span>测试element1</span>
+    <span>测试element1</span>
+    <span>测试element1</span>
   </div>
 )
 

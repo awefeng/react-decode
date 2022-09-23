@@ -52,6 +52,7 @@ function workLoop(deadline){
   let shouldYield = false
   // 存在下一次工作单元并且此时不需要中断的时候，就继续执行
   while(nextUnitWork && !shouldYield){
+    console.log("重新启动")
     // 1. performUnitWork工作：处理当前的工作单元，并且返回下一次需要处理的工作单元
     nextUnitWork = performUnitWork(nextUnitWork)
     // 2. 判断是否需要中断
@@ -95,12 +96,16 @@ function performUnitWork(fiber){
   // 4. 找到下一个需要处理的element并生成fiber返回
   // 如何寻找下一个需要处理的element：这种算法需要将element树的所有节点都遍历到，则候选为DFS和BFS。
   // 采用DFS的一个可能原因是子节点遍历完以后马上就能找到对应的父节点
-
-  const childElements = fiber.props.children
-
+  const childElements = fiber.props ? fiber.props.children : []
   let index = 0
   let preSiblingFiber = null
 
+  // 处理new map那种写法
+  childElements.forEach((_, index) => {
+    if(Array.isArray(childElements[index])){
+      childElements[index] = {type: 'div', props: {children: childElements[index]} }
+    }
+  })
   // 遍历子element，产生子fibers，并建立他们之间的关系
   while(index < childElements.length){
     const newFiber = {
@@ -137,8 +142,8 @@ function performUnitWork(fiber){
  * 将通过fiber创建DOM这一步骤抽成一个函数
  */
 function createDOM(fiber){
-  const dom = document.createElement(fiber.type)
-  Object.keys(fiber.props).filter(key => key !== "children").forEach(key => dom[key] = fiber.props[key])
+  const dom = fiber.type === 'TEXT_ELEMENT' ? document.createTextNode('')  : document.createElement(fiber.type)
+  fiber.props && Object.keys(fiber.props).filter(key => key !== "children").forEach(key => dom[key] = fiber.props[key])
   return dom
 }
 /**
@@ -163,7 +168,7 @@ function render(element, container){
   nextUnitWork = initFiber
 }
 
-const Feact =  {
+export const Feact =  {
   createElement,
   render
 }
