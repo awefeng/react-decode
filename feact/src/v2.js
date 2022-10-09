@@ -1,22 +1,9 @@
 /**
  * 手写一个简单的React V2
+ * 在v1的基础上添加concurrent mode
  */
 
-/**
- * const element = <h1 title="foo">Hello</h1>
- * const container = document.getElementById("root")
- * ReactDOM.render(element, container)
- * 需要实现两个核心功能：
- * 第一个是实现createElement函数将JSX转换为JS对象，
- * 第二个是实现render函数，将JSX转换后生成的JS对象渲染到DOM上
- * render函数的作用: 用JSX通过createElement生成的JS对象，生成对应的DOM结构，挂载到container
- */
-/**
- * JSX转换为JS的过程: 递归遍历JSX结构
- * 在执行createElement时，如果有children，先判断children类型。
- * child的类型为object的时候执行createElement(child)，拿到child的转换结果后再继续运行。
- */
- function createElement(type, props, ...children){
+function createElement(type, props, ...children){
   return {
     type,
     props: {
@@ -26,10 +13,6 @@
   }
 }
 
-/**
- * JSX是文本节点的时候单独处理
- * @param {string} child
- */
 function createTextElement(child){
   return {
     type: 'TEXT_ELEMENT',
