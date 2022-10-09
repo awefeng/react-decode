@@ -1,22 +1,8 @@
 /**
  * 手写一个简单的React V3
+ * 在v2的基础上新增阶段区分 新增更新和删除fiber的处理
  */
-
-/**
- * const element = <h1 title="foo">Hello</h1>
- * const container = document.getElementById("root")
- * ReactDOM.render(element, container)
- * 需要实现两个核心功能：
- * 第一个是实现createElement函数将JSX转换为JS对象，
- * 第二个是实现render函数，将JSX转换后生成的JS对象渲染到DOM上
- * render函数的作用: 用JSX通过createElement生成的JS对象，生成对应的DOM结构，挂载到container
- */
-/**
- * JSX转换为JS的过程: 递归遍历JSX结构
- * 在执行createElement时，如果有children，先判断children类型。
- * child的类型为object的时候执行createElement(child)，拿到child的转换结果后再继续运行。
- */
- function createElement(type, props, ...children){
+function createElement(type, props, ...children) {
   return {
     type,
     props: {
@@ -26,11 +12,7 @@
   }
 }
 
-/**
- * JSX是文本节点的时候单独处理
- * @param {string} child
- */
-function createTextElement(child){
+function createTextElement(child) {
   return {
     type: 'TEXT_ELEMENT',
     props: {
@@ -40,37 +22,101 @@ function createTextElement(child){
   }
 }
 
-/**
- * 将通过fiber创建DOM这一步骤抽成一个函数
- */
- function createDOM(fiber){
-  const dom = document.createElement(fiber.type)
-  Object.keys(fiber.props).filter(key => key !== "children").forEach(key => dom[key] = fiber.props[key])
+// 改造createDOM以支持事件
+function createDOM(fiber) {
+
+  const dom = fiber.type === 'TEXT_ELEMENT' ? document.createTextNode('') : document.createElement(fiber.type)
+
+  if(fiber.props){
+    updateDom(dom, {}, fiber.props)
+  }
   return dom
 }
 
+
+const isEvent = key => key.startsWith("on")
+const isProperty = key =>
+  key !== "children" && !isEvent(key)
+const isNew = (prev, next) => key =>
+  prev[key] !== next[key]
+const isGone = (prev, next) => key => !(key in next)
+
 /**
- * workLoop 支撑render2.0的concurrent mode函数
- * 暂时实现上通过requestIdleCallback实现
- * 在实际的scheduler模块中是通过一系列机制的结合实现
+ * updateDom: 创建或者更新DOM的时候使用
  */
+function updateDom(dom, prevProps, nextProps) {
+  //Remove old or changed event listeners
+  Object.keys(prevProps)
+    .filter(isEvent)
+    .filter(
+      key =>
+        !(key in nextProps) ||
+        isNew(prevProps, nextProps)(key)
+    )
+    .forEach(name => {
+      const eventType = name
+        .toLowerCase()
+        .substring(2)
+      dom.removeEventListener(
+        eventType,
+        prevProps[name]
+      )
+    })
+
+  // Remove old properties
+  Object.keys(prevProps)
+    .filter(isProperty)
+    .filter(isGone(prevProps, nextProps))
+    .forEach(name => {
+      dom[name] = ""
+    })
+  // Set new or changed properties
+  Object.keys(nextProps)
+    .filter(isProperty)
+    .filter(isNew(prevProps, nextProps))
+    .forEach(name => {
+      dom[name] = nextProps[name]
+    })
+
+  // Add event listeners
+  Object.keys(nextProps)
+    .filter(isEvent)
+    .filter(isNew(prevProps, nextProps))
+    .forEach(name => {
+      const eventType = name
+        .toLowerCase()
+        .substring(2)
+      dom.addEventListener(
+        eventType,
+        nextProps[name]
+      )
+    })
+}
+
 
 let nextUnitWork = null // 下一次需要处理的工作单元
-let workInProgress = null // 一次更新中，elements生成的fiber树
+let workInProgressRoot = null // 正在进行的更新中，生成的fiber树的根节点
+let currentRoot = null // 上一次更新中，生成的fiber树的根节点
+let needDeleteFibers = [] // 保存在对比以后需要删除的旧的fiber节点
 
+const EFFECTTAGS = {
+  placement: "PLACEMENT",
+  update: "UPDATE",
+  deletion: "DELETION"
+}
 
-// v3.0中需要改造为fiber树DFS完以后就
-function workLoop(deadline){
+function workLoop(deadline) {
   let shouldYield = false
   // 存在下一次工作单元并且此时不需要中断的时候，就继续执行
-  while(nextUnitWork && !shouldYield){
+  while (nextUnitWork && !shouldYield) {
+    console.log("重新启动")
     // 1. performUnitWork工作：处理当前的工作单元，并且返回下一次需要处理的工作单元
     nextUnitWork = performUnitWork(nextUnitWork)
     // 2. 判断是否需要中断
     shouldYield = deadline.timeRemaining < 1
   }
-  // fiber树处理完以后，代表render阶段已经结束，则立即进入commit阶段
-  if(!nextUnitWork && workInProgress){
+  // 如果这次更新没有需要处理的fiber工作单元了 并且有准备更新的fiber树的根节点
+  if (!nextUnitWork && workInProgressRoot) {
     commitRoot()
   }
   requestIdleCallback(workLoop)
@@ -79,118 +125,165 @@ function workLoop(deadline){
 requestIdleCallback(workLoop)
 
 /**
- * performUnitWork怎么处理当前的工作单元：需要完成v1.0render的工作
- * 1. 创建一个dom
- * 2. 将element的props传给DOM
- * 3. 将DOM结构挂载在父DOM下
- * 4. 用"返回下一个工作单元"的方式来代替遍历
- *
- * 还需要做一个额外的工作，建立各个fiber之间的关系
- *
- * @param {*} fiber
- * 因此nextUnitWork需要有以下属性
- * {
- *   dom: 用于表示nextUnitWork代表的element所对应的DOM结构,
- *   props: element的属性，创建dom的时候需要
- *   type: element的type，创建dom的时候需要
- *   parent: 父DOM
- * }
- * 这个结构就叫做fiber
- * 目前fiber的两层含义：工作单元、数据结构
- *
- * v3.0版本中将"DOM结构挂载在父DOM下"的操作抽出来，所有fiber都通过performUnitWork处理以后再进行DOM的连接
- * React中将处理element生成所有fiber树，称为render阶段
- * React中将用fiber树连接DOM，称为commit阶段
+ * commit阶段入口
  */
+function commitRoot() {
+  // 删除不要的DOM
+  needDeleteFibers.forEach(commitWork)
+  commitWork(workInProgressRoot.child)
+  // 更新完以后将workInProgressRoot保存为currentRoot
+  currentRoot = workInProgressRoot
+  workInProgressRoot = null
+}
 
-// render阶段
-function performUnitWork(fiber){
+/**
+ * commit阶段：处理fiber树 进行挂载DOM
+ */
+function commitWork(fiber) {
+  // 处理叶子节点的child和sibling为空的情况
+  if (!fiber) return
+  // 继续按照DFS的方式挂载DOM
+  const parentDOM = fiber.parent.dom
+  // 旧的fiber 删除DOM也是render阶段，也放在commitWork处理
+  if (fiber.effectTag === EFFECTTAGS.deletion) { parentDOM.removeChild(fiber.dom) }
+  else if (fiber.effectTag === EFFECTTAGS.placement) {
+    parentDOM.appendChild(fiber.dom)
+  }
+  else if (fiber.effectTag === EFFECTTAGS.update) {
+    updateDom(
+      fiber.dom,
+      fiber.alternate.props,
+      fiber.props
+    )
+  }
+
+  commitWork(fiber.child)
+  commitWork(fiber.sibling)
+}
+
+/**
+ * 在v2的基础上
+ * 将挂载DOM单独抽到完成fiber树以后
+ * 将处理当前fiber的后代 生成后代fiber的逻辑单独写成函数reconcileChildren
+ *
+ * 并且将reconcileChildren中的处理逻辑支持更新和删除
+ */
+function performUnitWork(fiber) {
   // 1+2. 创建一个dom并挂载props
-  if(!fiber.dom){
+  if (!fiber.dom) {
     fiber.dom = createDOM(fiber)
   }
   // // 3. DOM结构挂载在父DOM下
   // if(fiber.parent){
   //   fiber.parent.dom.appendChild(fiber.dom)
   // }
+  reconcileChildren(fiber)
 
-  // 4. 找到下一个需要处理的element并生成fiber返回
-  // 如何寻找下一个需要处理的element：这种算法需要将element树的所有节点都遍历到，则候选为DFS和BFS。
-  // 采用DFS的一个可能原因是子节点遍历完以后马上就能找到对应的父节点
+  // 返回下一个需要处理的fiber
+  if (fiber.child) {
+    return fiber.child
+  }
+  let nextFiber = fiber
+  while (nextFiber) {
+    if (nextFiber.sibling) return nextFiber.sibling
+    nextFiber = nextFiber.parent
+  }
+  return null
+}
 
-  const childElements = fiber.props.children
-
+/**
+ * 作用：处理workInPorgress树中的fiber节点的后代节点 生成后代fibers
+ * 找到传入的参数fiber的原来的后代节点，进行对比
+ */
+function reconcileChildren(fiber) {
+  const childElements = fiber.props ? fiber.props.children : []
+  // 找到当前参数的fiber对应的旧的fiber的child 第一个子节点
+  let oldFiber = fiber.alternate && fiber.alternate.child
   let index = 0
   let preSiblingFiber = null
 
-  // 遍历子element，产生子fibers，并建立他们之间的关系
-  while(index < childElements.length){
-    const newFiber = {
-      dom: null,
-      props: childElements[index].props,
-      type: childElements[index].type,
-      parent: fiber
+  // 处理new map那种写法
+  childElements.forEach((_, index) => {
+    if (Array.isArray(childElements[index])) {
+      childElements[index] = { type: 'div', props: { children: childElements[index] } }
     }
+  })
+  // 遍历子element，产生子fibers，并建立他们之间的关系
+  // 删除的时候会有：oldFiber !== null + 新的elements不存在 这种情况
+  while (index < childElements.length || oldFiber) {
+    let newFiber = null
+    // 原来有旧的节点 进行对比
+    if (oldFiber) {
+      // 原来有 新的没有 删除的情况
+      if (index >= childElements.length) {
+        // 单独用一个队列来保存需要删除的原来的fiber 不要影响新的fiber树
+        oldFiber.effectTag = EFFECTTAGS.deletion
+        needDeleteFibers.push(oldFiber)
+      } else { // 原来有 新的也有  替换或者是复用的情况
+        // 复用
+        if (oldFiber.type === childElements[index].type) {
+          newFiber = {
+            dom: oldFiber.dom,
+            props: childElements[index].props,
+            type: childElements[index].type,
+            parent: fiber,
+            alternate: oldFiber,
+            effectTag: EFFECTTAGS.update
+          }
+        } else {
+          // 替换：删除旧的 迎接新的
+          newFiber = {
+            dom: null,
+            props: childElements[index].props,
+            type: childElements[index].type,
+            parent: fiber,
+            alternate: oldFiber,
+            effectTag: EFFECTTAGS.update
+          }
+        }
+      }
+
+    } else { // 原来这里没有旧的节点 则是新增的情况
+      newFiber = {
+        dom: null,
+        props: childElements[index].props,
+        type: childElements[index].type,
+        parent: fiber,
+        alternate: null,
+        effectTag: EFFECTTAGS.placement
+      }
+    }
+    // 遍历完一轮 oldFiber就需要指向下一个 确保要生成的newFiber和正确的旧的fiber进行对比
+    if (oldFiber) {
+      oldFiber = oldFiber.sibling
+    }
+
     // 第一个子fiber
-    if(index === 0){
+    if (index === 0) {
       fiber.child = newFiber
-    }else{
+    } else {
       preSiblingFiber.sibling = newFiber
     }
     preSiblingFiber = newFiber
     index++
   }
-
-  // 返回下一个需要处理的fiber
-  if(fiber.child){
-    return fiber.child
-  }
-  let nextFiber = fiber
-  while(nextFiber){
-    if(nextFiber.sibling) return nextFiber.sibling
-    nextFiber = nextFiber.parent
-  }
-  // 后面可以不要
-  // 如果nexFiber遍历到最初的initFiber以后，证明已经没有需要处理的fiber了
-  return null
 }
 
-// commit阶段入口函数
-function commitRoot(){
-  commitWork(workInProgress.child)
-  workInProgress = null
-}
-
-function commitWork(fiber){
-  if(!fiber)return
-  fiber.parent.dom.appendChild(fiber.dom)
-  commitWork(fiber.child)
-  commitWork(fiber.sibling)
-}
-
-/**
- * render
- * v3.0：通过concurrent mode来实现可中断更新
- * 并且当所有fiber遍历完以后再去改变dom
- *
- * v2.0问题：
- * 在创建fiber的DOM以后就挂载在父DOM下，一旦中断，UI只更新了一部分，不符合要求。
- * @param {*} element
- * @param {*} container
- */
-function render(element, container){
+function render(element, container) {
   // workLoop 一直在轮询，因此只需要将nextUnitWork赋值为初始的fiber就可启动
   const initFiber =
   {
     dom: container,
     props: {
       children: [element]
-    }
+    },
+    alternate: currentRoot
   }
+  workInProgressRoot = initFiber
   nextUnitWork = initFiber
 }
 
-const Feact =  {
+export const Feact = {
   createElement,
   render
 }
