@@ -36,6 +36,8 @@ fiberRootNode --children--> rootFiber --children--> App
 
 ### beginWork的工作
 
-beignWork的工作就是以当前的current Fiber节点，和workInProgress Fiber节点，计算出新的子fiber节点，并将新的子fiber节点挂载到workInProgress.child上
+beignWork的工作就是拿到当前的current Fiber节点, 计算出他的children fiber（所有子节点），和需要更新的JSX（Element），计算出新的子fiber节点，并将新的子fiber节点挂载到workInProgress.child上
 
-其中会涉及到是否能够复用原来的current Fiber的子节点，如果能够复用，则clone原来current Fiber的子节点返回。
+其中会涉及到是否能够复用原来的Fiber的子节点，如果能够复用，则clone原来current Fiber的子节点
+
+
